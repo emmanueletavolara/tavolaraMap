@@ -84,6 +84,7 @@ export const AuthProvider = ({ children }) => {
   
   const signUp = async (email: string, password: string, name: string) => {
     try {
+      // First create the auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -92,21 +93,29 @@ export const AuthProvider = ({ children }) => {
       if (authError) throw authError;
   
       if (authData.user) {
+        // Create the user profile immediately after auth
         const { error: profileError } = await supabase
           .from('user_profiles')
           .insert([
             {
-              id: authData.user.id,
-              name,
-              email,
+              id: authData.user.id,  // This must match the auth.users id
+              name: name,
+              email: email,
               travels_with_pets: false,
               travels_with_family: false,
               disability_needs: {},
               other_preferences: {}
             }
-          ]);
+          ])
+          .select()
+          .single();
   
-        if (profileError) throw profileError;
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
+          // If profile creation fails, we should clean up
+          await supabase.auth.signOut();
+          throw new Error('Failed to create user profile');
+        }
       }
   
       return authData;

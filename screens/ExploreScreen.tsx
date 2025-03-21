@@ -1,16 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-} from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
 import { POI, POICategory } from '../types/poi';
+import { ScrollView } from 'react-native';
 
 const CATEGORY_ICONS: Record<POICategory, string> = {
   beach: '🏖️',
@@ -20,26 +12,31 @@ const CATEGORY_ICONS: Record<POICategory, string> = {
   landmark: '👑',
 };
 
+const CATEGORY_NAMES: Record<POICategory, string> = {
+  beach: 'Beaches',
+  mountain: 'Mountains',
+  restaurant: 'Restaurants',
+  port: 'Ports',
+  landmark: 'Landmarks',
+};
+
 export default function ExploreScreen() {
   const [pois, setPois] = useState<POI[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<POICategory | null>(null);
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
-  const { user } = useAuth();
 
   useEffect(() => {
     fetchPOIs();
-    if (user) {
-      fetchFavorites();
-    }
-  }, [user]);
+  }, []);
 
   const fetchPOIs = async () => {
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('pois')
-        .select('*');
-      
+        .select('*')
+        .order('name');
+
       if (error) throw error;
       setPois(data || []);
     } catch (error) {
@@ -49,108 +46,52 @@ export default function ExploreScreen() {
     }
   };
 
-  const fetchFavorites = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('user_interactions')
-        .select('poi_id')
-        .eq('user_id', user?.id)
-        .eq('type', 'favorite');
-
-      if (error) throw error;
-      setFavorites(new Set(data?.map(item => item.poi_id)));
-    } catch (error) {
-      console.error('Error fetching favorites:', error);
-    }
-  };
-
-  const toggleFavorite = async (poiId: string) => {
-    if (!user) return;
-
-    const isFavorite = favorites.has(poiId);
-    try {
-      if (isFavorite) {
-        await supabase
-          .from('user_interactions')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('poi_id', poiId)
-          .eq('type', 'favorite');
-        
-        favorites.delete(poiId);
-      } else {
-        await supabase
-          .from('user_interactions')
-          .insert([{
-            user_id: user.id,
-            poi_id: poiId,
-            type: 'favorite',
-            timestamp: new Date().toISOString(),
-          }]);
-        
-        favorites.add(poiId);
-      }
-      setFavorites(new Set(favorites));
-    } catch (error) {
-      console.error('Error toggling favorite:', error);
-    }
-  };
-
-  const renderPOICard = ({ item }: { item: POI }) => (
-    <View style={styles.card}>
-      {item.images_urls[0] && (
-        <Image
-          source={{ uri: item.images_urls[0] }}
-          style={styles.image}
-        />
-      )}
-      <View style={styles.cardContent}>
-        <Text style={styles.title}>
-          {CATEGORY_ICONS[item.category]} {item.name}
-        </Text>
-        <Text style={styles.description}>{item.description}</Text>
-        <TouchableOpacity
-          style={styles.favoriteButton}
-          onPress={() => toggleFavorite(item.id)}
-        >
-          <Text>{favorites.has(item.id) ? '❤️' : '🤍'}</Text>
-        </TouchableOpacity>
+  const renderPOIItem = ({ item }: { item: POI }) => (
+    <TouchableOpacity style={styles.poiCard}>
+      <View style={styles.poiContent}>
+        <Text style={styles.poiTitle}>{item.name}</Text>
+        <Text style={styles.poiCategory}>{CATEGORY_NAMES[item.category]}</Text>
+        <Text style={styles.poiDescription}>{item.description}</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  const filteredPOIs = selectedCategory 
+    ? pois.filter(poi => poi.category === selectedCategory)
+    : pois;
 
   return (
     <View style={styles.container}>
-      <View style={styles.categoryFilters}>
-        {Object.entries(CATEGORY_ICONS).map(([category, icon]) => (
+      <View style={styles.categoryFilter}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <TouchableOpacity
-            key={category}
-            style={[
-              styles.categoryButton,
-              selectedCategory === category && styles.categoryButtonActive
-            ]}
-            onPress={() => setSelectedCategory(
-              selectedCategory === category ? null : category as POICategory
-            )}
+            style={[styles.filterButton, !selectedCategory && styles.filterButtonActive]}
+            onPress={() => setSelectedCategory(null)}
           >
-            <Text>{icon}</Text>
+            <Text style={styles.filterText}>All</Text>
           </TouchableOpacity>
-        ))}
+          {Object.entries(CATEGORY_ICONS).map(([category, icon]) => (
+            <TouchableOpacity
+              key={category}
+              style={[
+                styles.filterButton,
+                selectedCategory === category && styles.filterButtonActive
+              ]}
+              onPress={() => setSelectedCategory(category as POICategory)}
+            >
+              <Text style={styles.filterText}>{icon}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       <FlatList
-        data={pois.filter(poi => !selectedCategory || poi.category === selectedCategory)}
-        renderItem={renderPOICard}
+        data={filteredPOIs}
+        renderItem={renderPOIItem}
         keyExtractor={item => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={styles.listContainer}
+        refreshing={loading}
+        onRefresh={fetchPOIs}
       />
     </View>
   );
@@ -161,53 +102,48 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  categoryFilters: {
-    flexDirection: 'row',
+  categoryFilter: {
     padding: 10,
     backgroundColor: 'white',
   },
-  categoryButton: {
-    padding: 10,
+  filterButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
     marginHorizontal: 5,
     borderRadius: 20,
     backgroundColor: '#f0f0f0',
   },
-  categoryButtonActive: {
-    backgroundColor: '#e0e0e0',
+  filterButtonActive: {
+    backgroundColor: '#0066cc',
   },
-  list: {
+  listContainer: {
     padding: 10,
   },
-  card: {
+  poiCard: {
     backgroundColor: 'white',
     borderRadius: 10,
     marginBottom: 10,
-    overflow: 'hidden',
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  image: {
-    width: '100%',
-    height: 200,
-  },
-  cardContent: {
+  poiContent: {
     padding: 15,
   },
-  title: {
+  poiTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 5,
   },
-  description: {
+  poiCategory: {
+    fontSize: 14,
     color: '#666',
+    marginBottom: 5,
   },
-  favoriteButton: {
-    position: 'absolute',
-    right: 15,
-    top: 15,
+  poiDescription: {
+    fontSize: 14,
+    color: '#444',
   },
 });
