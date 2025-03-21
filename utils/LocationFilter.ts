@@ -2,9 +2,9 @@ export class LocationFilter {
     private locationHistory: Location.LocationObjectCoords[] = [];
     private headingHistory: number[] = [];
     private lastStablePosition: Location.LocationObjectCoords | null = null;
-    private readonly locationHistorySize = 5;
-    private readonly headingHistorySize = 8;
-    private readonly movementThreshold = 1; // 1 metro di movimento minimo
+    private readonly locationHistorySize = 1;    // Increased buffer
+    private readonly headingHistorySize = 8;      // Keep this for responsive heading
+    private readonly movementThreshold = 5;       // More realistic threshold
   
     addLocation(location: Location.LocationObjectCoords): Location.LocationObjectCoords {
       // Aggiungi alla cronologia delle posizioni
