@@ -144,6 +144,18 @@ export default function MapScreen() {
     ]);
   };
 
+  const toggleCategory = (category: POICategory) => {
+    setSelectedCategories(prev => {
+      const newCategories = new Set(prev);
+      if (newCategories.has(category)) {
+        newCategories.delete(category);
+      } else {
+        newCategories.add(category);
+      }
+      return newCategories;
+    });
+  };
+
   return (
     <View style={styles.container}>
       <MapView
