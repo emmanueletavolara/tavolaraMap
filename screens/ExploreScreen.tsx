@@ -5,11 +5,11 @@ import { POI, POICategory } from '../types/poi';
 import { ScrollView } from 'react-native';
 
 const CATEGORY_ICONS: Record<POICategory, string> = {
-  beach: '🏖️',
-  mountain: '⛰️',
-  restaurant: '🍽️',
-  port: '🚢',
-  landmark: '👑',
+  beach: '🏖️',    // include spiagge, servizi balneari, chioschi
+  mountain: '⛰️',  // include sentieri, punti panoramici, aree pic-nic
+  restaurant: '🍽️', // include ristoranti, bar, aree ristoro
+  port: '🚢',     // include approdi, pontili, servizi nautici
+  landmark: '👑',  // include punti di interesse storico-culturali
 };
 
 const CATEGORY_NAMES: Record<POICategory, string> = {
@@ -23,11 +23,25 @@ const CATEGORY_NAMES: Record<POICategory, string> = {
 export default function ExploreScreen() {
   const [pois, setPois] = useState<POI[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<POICategory | null>(null);
+  const [selectedCategories, setSelectedCategories] = useState<Set<POICategory>>(
+    new Set(['beach', 'mountain', 'restaurant', 'port', 'landmark'])
+  );
 
   useEffect(() => {
     fetchPOIs();
   }, []);
+
+  const toggleCategory = (category: POICategory) => {
+    setSelectedCategories(prev => {
+      const newCategories = new Set(prev);
+      if (newCategories.has(category)) {
+        newCategories.delete(category);
+      } else {
+        newCategories.add(category);
+      }
+      return newCategories;
+    });
+  };
 
   const fetchPOIs = async () => {
     try {
@@ -48,38 +62,54 @@ export default function ExploreScreen() {
 
   const renderPOIItem = ({ item }: { item: POI }) => (
     <TouchableOpacity style={styles.poiCard}>
+      {item.images_urls?.[0] && (
+        <Image 
+          source={{ uri: item.images_urls[0] }}
+          style={styles.poiImage}
+        />
+      )}
       <View style={styles.poiContent}>
         <Text style={styles.poiTitle}>{item.name}</Text>
-        <Text style={styles.poiCategory}>{CATEGORY_NAMES[item.category]}</Text>
+        <Text style={styles.poiCategory}>
+          {CATEGORY_ICONS[item.category]} {CATEGORY_NAMES[item.category]}
+        </Text>
         <Text style={styles.poiDescription}>{item.description}</Text>
+        
+        {item.opening_hours && (
+          <Text style={styles.poiInfo}>⏰ {item.opening_hours}</Text>
+        )}
+        {item.price_info && (
+          <Text style={styles.poiInfo}>💰 {item.price_info}</Text>
+        )}
+        {item.booking_required && (
+          <Text style={styles.poiInfo}>📅 Prenotazione necessaria</Text>
+        )}
+        {item.contact_info && (
+          <Text style={styles.poiInfo}>📞 {item.contact_info}</Text>
+        )}
       </View>
     </TouchableOpacity>
   );
 
-  const filteredPOIs = selectedCategory 
-    ? pois.filter(poi => poi.category === selectedCategory)
-    : pois;
+  const filteredPOIs = pois.filter(poi => selectedCategories.has(poi.category));
 
   return (
     <View style={styles.container}>
       <View style={styles.categoryFilter}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <TouchableOpacity
-            style={[styles.filterButton, !selectedCategory && styles.filterButtonActive]}
-            onPress={() => setSelectedCategory(null)}
-          >
-            <Text style={styles.filterText}>All</Text>
-          </TouchableOpacity>
           {Object.entries(CATEGORY_ICONS).map(([category, icon]) => (
             <TouchableOpacity
               key={category}
               style={[
                 styles.filterButton,
-                selectedCategory === category && styles.filterButtonActive
+                selectedCategories.has(category as POICategory) && styles.filterButtonActive
               ]}
-              onPress={() => setSelectedCategory(category as POICategory)}
+              onPress={() => toggleCategory(category as POICategory)}
             >
-              <Text style={styles.filterText}>{icon}</Text>
+              <Text style={[
+                styles.filterText,
+                selectedCategories.has(category as POICategory) && styles.filterTextActive
+              ]}>{icon}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -116,6 +146,12 @@ const styles = StyleSheet.create({
   filterButtonActive: {
     backgroundColor: '#0066cc',
   },
+  filterText: {
+    color: '#666',
+  },
+  filterTextActive: {
+    color: 'white',
+  },
   listContainer: {
     padding: 10,
   },
@@ -145,5 +181,16 @@ const styles = StyleSheet.create({
   poiDescription: {
     fontSize: 14,
     color: '#444',
+  },
+  poiImage: {
+    width: '100%',
+    height: 200,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+  },
+  poiInfo: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 5,
   },
 });
