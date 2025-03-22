@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, Alert } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, Alert, ActivityIndicator } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -7,11 +7,11 @@ import { supabase } from '../lib/supabase';
 import { POI, POICategory } from '../types/poi';
 import { LocationFilter } from '../utils/LocationFilter';
 
-const INITIAL_REGION = {
-  latitude: 40.8919,
-  longitude: 9.7322,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
+const SPALMATORE_REGION = {
+  latitude: 40.8985,    // Coordinate precise di Spalmatore di Terra
+  longitude: 9.7225,    // a Tavolara
+  latitudeDelta: 0.015, // Zoom regolato per vedere bene la spiaggia
+  longitudeDelta: 0.015 // e un po' dell'isola
 };
 
 const CATEGORY_ICONS: Record<POICategory, string> = {
@@ -22,34 +22,73 @@ const CATEGORY_ICONS: Record<POICategory, string> = {
   landmark: '👑',
 };
 
+// Aggiungi questa costante per un zoom più preciso
+const DETAILED_ZOOM = {
+  latitudeDelta: 0.0005,  // Zoom molto più stretto
+  longitudeDelta: 0.0005
+};
+
+// Aggiungi una funzione per gestire la qualità del segnale GPS
+const handleLocationAccuracy = (accuracy: number) => {
+  if (accuracy > 100) {
+    Alert.alert(
+      "Segnale GPS debole",
+      "Per migliorare la precisione:\n" +
+      "• Spostati all'aperto\n" +
+      "• Allontanati da edifici alti\n" +
+      "• Muovi il dispositivo a forma di '8' per calibrare la bussola"
+    );
+    return false;
+  }
+  return true;
+};
+
 export default function MapScreen() {
   const [pois, setPois] = useState<POI[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<Set<POICategory>>(
     new Set(['beach', 'mountain', 'restaurant', 'port', 'landmark'])
   );
   const [loading, setLoading] = useState(true);
-  
-  // Add these new state variables
   const [userLocation, setUserLocation] = useState<Location.LocationObjectCoords | null>(null);
+  const [showUserLocation, setShowUserLocation] = useState(false);
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<Array<{latitude: number, longitude: number}>>([]);
   const mapRef = React.useRef<MapView>(null);
-
-  // Move toggleCategory inside the component
-  const toggleCategory = (category: POICategory) => {
-    setSelectedCategories(prev => {
-      const newCategories = new Set(prev);
-      if (newCategories.has(category)) {
-        newCategories.delete(category);
-      } else {
-        newCategories.add(category);
-      }
-      return newCategories;
-    });
-  };
+  const locationFilter = React.useRef(new LocationFilter()).current;
 
   useEffect(() => {
     fetchPOIs();
+    
+    let locationSubscription: any;
+
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Location permission is required');
+        return;
+      }
+
+      // Inizia il monitoraggio continuo della posizione
+      locationSubscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1000,
+          distanceInterval: 1
+        },
+        (location) => {
+          const filteredLocation = locationFilter.addLocation(location.coords);
+          setUserLocation(filteredLocation);
+          setShowUserLocation(true);
+        }
+      );
+    })();
+
+    // Cleanup
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
   }, []);
 
   const fetchPOIs = async () => {
@@ -90,19 +129,6 @@ export default function MapScreen() {
     </Marker>
   );
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission denied', 'Location permission is required');
-        return;
-      }
-
-      const location = await Location.getCurrentPositionAsync({});
-      setUserLocation(location.coords);
-    })();
-  }, []);
-
   const getDirections = async (destination) => {
     if (!userLocation) {
       Alert.alert('Error', 'Your location is not available');
@@ -121,11 +147,13 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
-        initialRegion={INITIAL_REGION}
-        showsUserLocation={true}
+        initialRegion={SPALMATORE_REGION}
+        showsUserLocation={showUserLocation}
         showsMyLocationButton={true}
+        showsCompass={true}
       >
         {pois
           .filter(poi => selectedCategories.has(poi.category))
@@ -155,49 +183,47 @@ export default function MapScreen() {
         )}
       </MapView>
 
-      {/* Location and Reset buttons */}
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={styles.circleButton}
-          onPress={() => {
-            if (userLocation) {
-              mapRef.current?.animateToRegion({
-                latitude: userLocation.latitude,
-                longitude: userLocation.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              });
-            }
-          }}
-        >
-          <MaterialIcons name="my-location" size={24} color="#0066cc" />
-        </TouchableOpacity>
-
-        {routeCoordinates.length > 0 && (
+      {showUserLocation && (
+        <View style={styles.buttonContainer}>
           <TouchableOpacity
             style={styles.circleButton}
             onPress={() => {
-              setRouteCoordinates([]);
-              setSelectedPOI(null);
+              if (userLocation && mapRef.current) {
+                if (handleLocationAccuracy(userLocation.accuracy)) {
+                  mapRef.current.animateToRegion({
+                    latitude: userLocation.latitude,
+                    longitude: userLocation.longitude,
+                    ...DETAILED_ZOOM
+                  }, 1000);
+                }
+              }
             }}
           >
-            <MaterialIcons name="close" size={24} color="#0066cc" />
+            <MaterialIcons 
+              name="my-location" 
+              size={24} 
+              color={userLocation?.accuracy && userLocation.accuracy <= 20 ? "#00ff00" : 
+                    userLocation?.accuracy && userLocation.accuracy <= 50 ? "#ffcc00" : "#ff0000"} 
+            />
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
 
-      {/* Existing category filters */}
+      {/* Filtri categorie */}
       <View style={styles.categoryFilters}>
         {Object.entries(CATEGORY_ICONS).map(([category, icon]) => (
           <TouchableOpacity
             key={category}
             style={[
-              styles.categoryButton,
-              selectedCategories.has(category as POICategory) && styles.categoryButtonActive
+              styles.filterButton,
+              selectedCategories.has(category as POICategory) && styles.filterButtonActive
             ]}
             onPress={() => toggleCategory(category as POICategory)}
           >
-            <Text>{icon}</Text>
+            <Text style={[
+              styles.filterText,
+              selectedCategories.has(category as POICategory) && styles.filterTextActive
+            ]}>{icon}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -222,14 +248,22 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     margin: 10,
   },
-  categoryButton: {
-    padding: 10,
+  filterButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 8,
     marginHorizontal: 5,
     borderRadius: 20,
     backgroundColor: '#f0f0f0',
   },
-  categoryButtonActive: {
-    backgroundColor: '#e0e0e0',
+  filterButtonActive: {
+    backgroundColor: '#0066cc',
+  },
+  filterText: {
+    color: '#666',
+    fontSize: 24, // manteniamo la dimensione più grande per le emoji nella mappa
+  },
+  filterTextActive: {
+    color: 'white',
   },
   markerText: {
     fontSize: 24,
@@ -254,4 +288,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+  }
 });
